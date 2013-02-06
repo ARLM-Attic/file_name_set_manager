@@ -6,10 +6,13 @@ A program to feed files to file_name_set_manager
 """
 import argparse
 import logging
+import os
 import os.path
 import random
 import sys
 import time
+
+import redis
 
 class CommandlineError(Exception):
     pass
@@ -17,6 +20,9 @@ class CommandlineError(Exception):
 _program_description = "feed test files to watch directory" 
 
 _log_format_template = "%(asctime)s %(levelname)-8s %(name)-20s: %(message)s"
+_redis_host = os.environ.get("REDIS_HOST", "localhost")
+_redis_port = int(os.environ.get("REDIS_PORT", str(6379)))
+_redis_db = int(os.environ.get("REDIS_DB", str(0)))
 _user_ids = [1001, 2001, 3001, 4001, 5001]
 _device_ids = [1, 2, 3]
 _low_xact_id = 1000
@@ -42,7 +48,12 @@ def _parse_commandline():
     parser = argparse.ArgumentParser(description=_program_description)
     parser.add_argument("-w", "--watch", dest="watch_path",  
                        help="/path/to/watch/directory") 
-
+    parser.add_argument("-p", "--prefix", dest="redis_prefix", 
+                        help="prefix for key to construct the redis key")
+    parser.add_argument("-n", "--notification-channel", 
+                        dest="notification_channel",  
+                        default="file-name-set-manager-test-channel",
+                        help="redis pub/sub channel for key notification") 
     parser.add_argument("--d", 
                         "--duration", 
                         dest="test_duration",
@@ -75,7 +86,25 @@ def _parse_commandline():
         parser.print_help()
         raise CommandlineError("You must specify a directory to watch")
 
+    if args.redis_prefix is None:
+        parser.print_help()
+        raise CommandlineError("You must specify a prefix for constructing " \
+                               "the redis key")
+
     return args
+
+def _create_redis_connection(host=None, port=None, db=None):
+    log = logging.getLogger("create_redis_connection")
+
+    if host is None:
+        host = _redis_host
+    if port is None:
+        port = _redis_port
+    if db is None:
+        db = _redis_db
+
+    log.info("connecting to {0}:{1} db={2}".format(host, port, db))
+    return redis.StrictRedis(host=host, port=port, db=db)
 
 def _construct_random_key():
     return "{0}-{1}-{2}".format(random.choice(_user_ids),
@@ -97,6 +126,8 @@ def _store_one_key(args):
         with open(file_path, "wb") as output_file:
             output_file.write(b"x")
 
+    return key, file_count
+
 def main():
     """
     main entry point for the program
@@ -107,17 +138,26 @@ def main():
     log.info("program starts")
 
     args = _parse_commandline()
+    redis = _create_redis_connection()
 
     start_time = time.time()
     elapsed_time = 0.0
     while elapsed_time < args.test_duration:
         try:
-            _store_one_key(args)
+            key, count = _store_one_key(args)
         except Exception:
             log.exception("_store_one_key")
-            return 1 
+            return 1
+
+        # there is some latency in file_name_set_manager
+        # so we pause before notifying the consumer
         interval = random.uniform(args.min_key_interval, args.max_key_interval)
         time.sleep(interval)
+
+        redis_key = "_".join([args.redis_prefix, key, ])
+        message = "{0} {1}".format(redis_key, count)
+        redis.publish(args.notification_channel, message)
+
         elapsed_time = time.time() - start_time
 
     log.info("program completes return code = 0")

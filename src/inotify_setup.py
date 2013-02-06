@@ -11,7 +11,7 @@ import pyinotify
 
 class InotifyError(Exception):
     pass
-    
+
 _incoming_files_mask = pyinotify.IN_CLOSE_WRITE | pyinotify.IN_MOVED_TO
 _outgoing_files_mask = pyinotify.IN_DELETE | pyinotify.IN_MOVED_FROM             
 _file_changes_mask = _incoming_files_mask | _outgoing_files_mask   
@@ -26,7 +26,7 @@ class _ProcessEvent(pyinotify.ProcessEvent):
 
     def process_default(self, inotify_event):
         self._file_name_queue.put((inotify_event.name, 
-                                   inotify_event.event_name, ))
+                                   inotify_event.maskname, ))
 
     def process_IN_Q_OVERFLOW(self, event):
         error_message = "Overflow: max_queued_events={0} {1}".format(
@@ -49,7 +49,7 @@ class _NotifierThread(Thread):
                 try:
                     self._notifier.process_events()
                 except Exception:
-                    self._log.Exception("process_events")
+                    self._log.exception("process_events")
                     self._halt_event.set()
 
 def create_notifier(watch_path, file_name_queue):
