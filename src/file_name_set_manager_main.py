@@ -15,6 +15,7 @@ except ImportError:
     import Queue as queue
 import sys
 from threading import Event
+import time
 
 from signal_handler import set_signal_handler
 from log_setup import initialize_stderr_logging, initialize_file_logging
@@ -23,6 +24,7 @@ from inotify_setup import create_notifier, create_notifier_thread, InotifyError
 from redis_connection import create_redis_connection
 
 _found_at_startup = "FOUND_AT_STARTUP"
+_up_to_date_timestamp = "up_to_date"
 
 def _initial_directory_scan(watch_path, file_name_queue):    
     """
@@ -103,12 +105,17 @@ def main():
         log.exception("Unable to connect to redis")
         return 1
 
+    up_to_date_timestamp_key = "_".join([args.redis_prefix, 
+                                         _up_to_date_timestamp])
+    redis.set(up_to_date_timestamp_key, "0")
+
     notifier_thread = create_notifier_thread(halt_event, notifier)
     notifier_thread.start()
 
     # we want the notifier running while we do the initial directory scan, so
     # we don't miss any files. But this leaves us open to duplicates()
     _initial_directory_scan(args.watch_path, file_name_queue)
+    redis.set(up_to_date_timestamp_key, str(int(time.time())))
 
     log.info("main loop starts")
     return_code = 0
@@ -141,6 +148,7 @@ def main():
             halt_event.set()
 
     log.info("main loop ends")
+    redis.set(up_to_date_timestamp_key, "0")
     notifier_thread.join(timeout=5.0)
 #    assert not notifier_thread.is_alive
     notifier.stop()
