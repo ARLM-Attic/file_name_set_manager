@@ -81,6 +81,10 @@ def _process_message(args, redis, message):
     else:
         log.error("received key {0} with {1} set members expected {2}".format(
                   redis_key, len(members), expected_count))
+
+    # we don't need this key anymore
+    redis.delete(redis_key) 
+
     for member in members:
         file_name = member.decode("utf-8")
         path = os.path.join(args.watch_path, file_name)

@@ -45,13 +45,9 @@ def _process_incoming_file(redis, redis_key, file_name):
                                                               file_name))
 
 def _process_outgoing_file(redis, redis_key, file_name):
-    log = logging.getLogger("_process_outgoing_file")
-
-    rem_count = redis.srem(redis_key, file_name)
-    # this is probably some form of duplicate, so we don't abort
-    if rem_count == 0:
-        log.warn("srem({0}, {1}) returned add count 0".format(redis_key, 
-                                                              file_name))
+    # we don't warn on a zero count here, because the user can
+    # delete the key when he is no longer interested in it
+    _ = redis.srem(redis_key, file_name)                                                              file_name))
 
 _dispatch_table = {_found_at_startup    : _process_incoming_file,
                    "IN_CLOSE_WRITE"     : _process_incoming_file,
