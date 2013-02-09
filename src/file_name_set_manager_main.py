@@ -48,7 +48,7 @@ def _process_outgoing_file(redis, redis_key, file_name):
     # we don't warn on a zero count here, because the user can
     # delete the key when he is no longer interested in it
     _ = redis.srem(redis_key, file_name)
-    
+
 _dispatch_table = {_found_at_startup    : _process_incoming_file,
                    "IN_CLOSE_WRITE"     : _process_incoming_file,
                    "IN_MOVED_TO"        : _process_incoming_file,
@@ -83,6 +83,8 @@ def main():
         return 1        
 
     initialize_file_logging(args.log_path, args.verbose)
+
+    log.info("key regex pattern = '{0}'".format(key_regex.pattern))
 
     halt_event = Event()
     set_signal_handler(halt_event)
