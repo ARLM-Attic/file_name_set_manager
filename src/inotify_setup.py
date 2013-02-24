@@ -12,8 +12,10 @@ import pyinotify
 class InotifyError(Exception):
     pass
 
+from event_names import inotify_idle
+
 _incoming_files_mask = pyinotify.IN_CLOSE_WRITE | pyinotify.IN_MOVED_TO
-_outgoing_files_mask = pyinotify.IN_DELETE | pyinotify.IN_MOVED_FROM             
+_outgoing_files_mask = pyinotify.IN_DELETE | pyinotify.IN_MOVED_FROM 
 _file_changes_mask = _incoming_files_mask | _outgoing_files_mask   
                 
 class _ProcessEvent(pyinotify.ProcessEvent):
@@ -36,10 +38,11 @@ class _ProcessEvent(pyinotify.ProcessEvent):
         raise InotifyError(error_message)
 
 class _NotifierThread(Thread):
-    def __init__(self, halt_event, notifier):
+    def __init__(self, halt_event, notifier, file_name_queue):
         Thread.__init__(self, name="notifier")
         self._halt_event = halt_event
         self._notifier = notifier
+        self._file_name_queue = file_name_queue 
         self._log = logging.getLogger("notifier_thread")
 
     def run(self):
@@ -51,6 +54,9 @@ class _NotifierThread(Thread):
                 except Exception:
                     self._log.exception("process_events")
                     self._halt_event.set()
+                    break
+            else:
+                self._file_name_queue.put((None, inotify_idle, ))
 
 def create_notifier(watch_path, file_name_queue):
     """
@@ -70,17 +76,18 @@ def create_notifier(watch_path, file_name_queue):
             watch_path))
 
     if result[watch_path] < 0:
-        raise InotifyError("add_watch failed: '{0}' {1}" % (watch_path, 
-                                                            result[watch_path]))
+        raise InotifyError("add_watch failed: {0} {1}".format(
+                           watch_path, 
+                           result[watch_path]))
 
     proc_fun = _ProcessEvent(file_name_queue=file_name_queue)
     notifier = pyinotify.Notifier(watch_manager, default_proc_fun=proc_fun)
 
     return notifier
 
-def create_notifier_thread(halt_event, notifier):
+def create_notifier_thread(halt_event, notifier, file_name_queue):
     """
     create a Thread object that polls the notifier and puts file_names
     in the queue
     """
-    return _NotifierThread(halt_event, notifier)
+    return _NotifierThread(halt_event, notifier, file_name_queue)
